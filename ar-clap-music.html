@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clap to Change Song — AR</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #camera {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* mirror */
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* AR glass panel */
+    .ar-panel {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(380px, 90vw);
+      background: rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 28px;
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.05),
+        0 40px 80px rgba(0,0,0,0.5),
+        inset 0 1px 0 rgba(255,255,255,0.12);
+      transition: transform 0.3s ease;
+    }
+
+    .ar-panel.bump {
+      animation: bump 0.4s ease;
+    }
+
+    @keyframes bump {
+      0%   { transform: translate(-50%, -50%) scale(1); }
+      30%  { transform: translate(-50%, -50%) scale(1.04); }
+      100% { transform: translate(-50%, -50%) scale(1); }
+    }
+
+    .song-num {
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 18px;
+    }
+
+    .album-art {
+      width: 120px;
+      height: 120px;
+      border-radius: 16px;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 52px;
+      transition: background 0.5s ease, transform 0.3s ease;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    }
+
+    .album-art.spin {
+      animation: spinIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes spinIn {
+      0%   { transform: rotate(-15deg) scale(0.8); opacity: 0.5; }
+      100% { transform: rotate(0deg) scale(1); opacity: 1; }
+    }
+
+    .song-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+      letter-spacing: -0.3px;
+      transition: opacity 0.2s;
+    }
+
+    .song-artist {
+      font-size: 14px;
+      color: rgba(255,255,255,0.55);
+      margin-bottom: 24px;
+    }
+
+    /* waveform visualizer */
+    #visualizer {
+      width: 100%;
+      height: 40px;
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      pointer-events: all;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .play-btn {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: none;
+      background: #fff;
+      color: #000;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 20px rgba(255,255,255,0.3);
+    }
+
+    .play-btn:hover { transform: scale(1.08); }
+    .play-btn:active { transform: scale(0.95); }
+
+    .skip-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.7);
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.15s;
+      pointer-events: all;
+    }
+
+    .skip-btn:hover { background: rgba(255,255,255,0.15); transform: scale(1.05); }
+
+    /* Clap badge */
+    .clap-badge {
+      position: absolute;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%) scale(0);
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 40px;
+      padding: 10px 22px;
+      font-size: 15px;
+      color: #fff;
+      font-weight: 600;
+      white-space: nowrap;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+      opacity: 0;
+    }
+
+    .clap-badge.show {
+      transform: translateX(-50%) scale(1);
+      opacity: 1;
+    }
+
+    /* Ripple effect */
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.6);
+      pointer-events: none;
+      animation: rippleOut 0.8s ease-out forwards;
+    }
+
+    @keyframes rippleOut {
+      0%   { width: 0; height: 0; opacity: 0.9; }
+      100% { width: 300px; height: 300px; opacity: 0; }
+    }
+
+    /* Floating particles */
+    .particle {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: floatUp 1.2s ease-out forwards;
+    }
+
+    @keyframes floatUp {
+      0%   { transform: translateY(0) scale(1); opacity: 0.9; }
+      100% { transform: translateY(-120px) scale(0); opacity: 0; }
+    }
+
+    /* Start screen */
+    #start-screen {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      z-index: 100;
+    }
+
+    #start-screen h1 {
+      font-size: 32px;
+      color: #fff;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+
+    #start-screen p {
+      color: rgba(255,255,255,0.5);
+      font-size: 15px;
+      text-align: center;
+      max-width: 280px;
+      line-height: 1.6;
+    }
+
+    #start-btn {
+      padding: 14px 32px;
+      border-radius: 40px;
+      border: none;
+      background: #fff;
+      color: #000;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: -0.2px;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 4px 30px rgba(255,255,255,0.25);
+    }
+
+    #start-btn:hover { transform: scale(1.04); }
+
+    .big-emoji { font-size: 64px; }
+
+    /* sensitivity bar */
+    .sens-row {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0,0,0,0.4);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 40px;
+      padding: 10px 18px;
+      pointer-events: all;
+    }
+
+    .sens-row label {
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    #sens-slider {
+      -webkit-appearance: none;
+      width: 90px;
+      height: 4px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.2);
+      outline: none;
+    }
+
+    #sens-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .mic-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ade80;
+      transition: background 0.1s;
+    }
+
+    .mic-dot.loud { background: #f87171; }
+
+    .level-bar-wrap {
+      width: 70px;
+      height: 4px;
+      background: rgba(255,255,255,0.12);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    #level-bar {
+      height: 100%;
+      width: 0%;
+      background: #4ade80;
+      border-radius: 4px;
+      transition: width 0.05s linear, background 0.1s;
+    }
+
+    #level-bar.hot { background: #f87171; }
+  </style>
+</head>
+<body>
+
+<!-- Start screen -->
+<div id="start-screen">
+  <div class="big-emoji">👏</div>
+  <h1>Snap to Switch</h1>
+  <p>Snap your fingers to change the song.<br>Works even while music is playing.</p>
+  <button id="start-btn">Enable Camera &amp; Mic</button>
+</div>
+
+<!-- Camera feed -->
+<video id="camera" autoplay muted playsinline></video>
+<!-- Hidden canvas for motion detection -->
+<canvas id="motion-canvas" style="display:none"></canvas>
+
+<!-- Canvas for visualizer -->
+<div id="overlay">
+  <div class="ar-panel" id="panel">
+    <div class="song-num" id="song-num">1 / 6</div><!-- updated by JS -->
+    <div class="album-art" id="album-art">🎵</div>
+    <div class="song-title" id="song-title">Loading…</div>
+    <div class="song-artist" id="song-artist">—</div>
+    <canvas id="visualizer"></canvas>
+    <div class="controls">
+      <button class="skip-btn" id="prev-btn">⏮</button>
+      <button class="play-btn" id="play-btn">▶</button>
+      <button class="skip-btn" id="next-btn">⏭</button>
+    </div>
+  </div>
+
+  <div class="clap-badge" id="clap-badge">👏 Clap detected!</div>
+</div>
+
+<!-- Sensitivity bar -->
+<div class="sens-row">
+  <div class="mic-dot" id="mic-dot"></div>
+  <div class="level-bar-wrap"><div id="level-bar"></div></div>
+  <label>Snap Sens</label>
+  <input type="range" id="sens-slider" min="1" max="10" value="5" step="1" />
+</div>
+
+<script>
+  // ─── Playlist ─────────────────────────────────────────────────────────────
+  const SONGS = [
+    {
+      title: "Stateside",
+      artist: "Zara Larsson & PinkPantheress",
+      emoji: "💫", color: "#db2777",
+      query: "Stateside Zara Larsson PinkPantheress"
+    },
+    {
+      title: "Stargirl Interlude",
+      artist: "The Weeknd & Lana Del Rey",
+      emoji: "⭐", color: "#7c3aed",
+      query: "Stargirl Interlude The Weeknd Lana Del Rey"
+    },
+    {
+      title: "Phantom",
+      artist: "esdeekid & Rico Ace",
+      emoji: "👻", color: "#334155",
+      albumId: "1821500129"  // direct iTunes album lookup — no search needed
+    },
+    {
+      title: "I Took a Pill in Ibiza",
+      artist: "Mike Posner",
+      emoji: "🏖️", color: "#0369a1",
+      query: "I Took a Pill in Ibiza Mike Posner"
+    },
+    {
+      title: "Welcome to St. Tropez",
+      artist: "DJ Antoine feat. Kalenna",
+      emoji: "⛵", color: "#0891b2",
+      albumId: "1491723734"  // album lookup → pick first track
+    },
+    {
+      title: "Comë N Go",
+      artist: "—",
+      emoji: "🎶", color: "#65a30d",
+      songId: "1830346719"   // direct track lookup
+    },
+  ];
+
+  // ─── Audio state ──────────────────────────────────────────────────────────
+  let audioCtx = null;
+  let isPlaying = false;
+  let currentSongIdx = 0;
+
+  // One Audio element per song; filled by loadPreviews()
+  const audioEls = SONGS.map(() => null);
+  let currentAudio = null;
+
+  // Synth fallback patterns (used if iTunes preview fails to load)
+  const FALLBACK_PATTERNS = [
+    { freqs: [220, 277, 330, 415], type: "sawtooth", detune: 8 },
+    { freqs: [174, 220, 261, 349], type: "sine",     detune: 2 },
+    { freqs: [185, 233, 277, 370], type: "triangle", detune: 6 },
+    { freqs: [196, 247, 294, 370], type: "triangle", detune: 5 },
+    { freqs: [233, 293, 349, 440], type: "sawtooth", detune: 10 },
+    { freqs: [164, 220, 274, 329], type: "sine",     detune: 3 },
+  ];
+  let synthOscis = [];
+
+  function ensureAudioCtx() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  }
+
+  // ─── iTunes 30-sec preview loader ─────────────────────────────────────────
+  async function loadPreviews() {
+    await Promise.all(SONGS.map(async (song, idx) => {
+      try {
+        let url, pickTrack;
+        if (song.songId) {
+          // Direct track ID — returns a single result, no entity filter needed
+          url = `https://itunes.apple.com/lookup?id=${song.songId}`;
+          pickTrack = r => r.previewUrl;
+        } else if (song.albumId) {
+          // Album ID — expand to tracks, grab first one with a preview
+          url = `https://itunes.apple.com/lookup?id=${song.albumId}&entity=song`;
+          pickTrack = r => r.previewUrl && r.wrapperType === "track";
+        } else {
+          url = `https://itunes.apple.com/search?entity=song&limit=3&country=US&term=${encodeURIComponent(song.query)}`;
+          pickTrack = r => r.previewUrl && r.wrapperType === "track";
+        }
+        const res  = await fetch(url);
+        const data = await res.json();
+        const hit  = data.results?.find(pickTrack);
+        if (hit) {
+          // Patch in the real artist name from iTunes if we left a placeholder
+          if (song.artist === "—" && hit.artistName) song.artist = hit.artistName;
+          const el = new Audio(hit.previewUrl);
+          el.volume = 0.85;
+          el.addEventListener("ended", () => { el.currentTime = 0; el.play(); });
+          audioEls[idx] = el;
+        }
+      } catch (_) { /* falls back to synth */ }
+    }));
+  }
+
+  // ─── Playback helpers ─────────────────────────────────────────────────────
+  function stopAll() {
+    if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; currentAudio = null; }
+    synthOscis.forEach(o => { try { o.stop(); } catch(_) {} });
+    synthOscis = [];
+    isPlaying = false;
+  }
+
+  function playSong(idx) {
+    stopAll();
+    ensureAudioCtx();
+    if (audioEls[idx]) {
+      audioEls[idx].currentTime = 0;
+      audioEls[idx].play().catch(() => {});
+      currentAudio = audioEls[idx];
+      isPlaying = true;
+    } else {
+      // Synth fallback
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0.12;
+      gainNode.connect(audioCtx.destination);
+      const pat = FALLBACK_PATTERNS[idx];
+      pat.freqs.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        osc.type = pat.type;
+        osc.frequency.value = freq;
+        osc.detune.value = (i % 2 === 0 ? 1 : -1) * pat.detune;
+        const eg = audioCtx.createGain();
+        eg.gain.value = 1 / pat.freqs.length;
+        osc.connect(eg); eg.connect(gainNode); osc.start();
+        synthOscis.push(osc);
+      });
+      isPlaying = true;
+    }
+  }
+
+  // ─── Shared trigger cooldown (audio + gesture share the same gate) ────────
+  let lastTriggerTime = 0;
+  const TRIGGER_COOLDOWN = 900;
+
+  // ─── Snap-only detection ──────────────────────────────────────────────────
+  // Snaps concentrate energy at 4–8 kHz. Speech sits mostly below 3 kHz.
+  // Strategy: require (1) a sharp spike in the 4-8 kHz band AND
+  //           (2) that energy then drops quickly the next frame.
+  // Speech stays elevated; snaps decay immediately → two-frame confirm.
+  let micAnalyser  = null;
+  let micFreqData  = null;
+  let snapBaseline = 0;
+  let snapPending  = false;
+  let snapPeakEnergy   = 0;
+  let snapPendingFrames = 0;
+
+  async function setupMic() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const source = audioCtx.createMediaStreamSource(stream);
+    micAnalyser = audioCtx.createAnalyser();
+    micAnalyser.fftSize = 2048;
+    micAnalyser.smoothingTimeConstant = 0.05;
+    source.connect(micAnalyser);
+    micFreqData = new Uint8Array(micAnalyser.frequencyBinCount);
+  }
+
+  function getSnapBandEnergy() {
+    micAnalyser.getByteFrequencyData(micFreqData);
+    // bin 186 ≈ 4.0 kHz, bin 372 ≈ 8.0 kHz — snap sweet spot, above speech range
+    let sum = 0;
+    for (let i = 186; i < 372; i++) sum += micFreqData[i];
+    return sum / 186;
+  }
+
+  function detectSnap() {
+    if (!micAnalyser) return;
+
+    const energy = getSnapBandEnergy();
+
+    // ONLY update baseline when idle — stops the snap itself from inflating baseline,
+    // which was shrinking spikeHeight and making confirmation unreliable.
+    if (!snapPending) {
+      snapBaseline = snapBaseline * 0.97 + energy * 0.03;
+    }
+
+    // Level meter
+    document.getElementById("level-bar").style.width = Math.min(100, (energy / 70) * 100) + "%";
+    document.getElementById("level-bar").classList.toggle("hot", energy > 40);
+    document.getElementById("mic-dot").classList.toggle("loud", energy > 15);
+
+    const sens = parseInt(document.getElementById("sens-slider").value, 10);
+    // sens 1 → 4.2×  sens 5 → 3.0×  sens 10 → 1.5×
+    const ratioThresh = 4.5 - sens * 0.3;
+    const minEnergy   = 14;
+
+    const now = Date.now();
+    if (now - lastTriggerTime < TRIGGER_COOLDOWN) { snapPending = false; return; }
+
+    const ratio = snapBaseline > 3 ? energy / snapBaseline : 0;
+
+    if (snapPending) {
+      snapPendingFrames++;
+
+      // Keep updating the peak — snap attack can span 1–2 frames at 30 ms
+      if (energy > snapPeakEnergy) snapPeakEnergy = energy;
+
+      // Start checking after 2 frames (~60 ms). Give up after 5 frames (~150 ms).
+      if (snapPendingFrames >= 2) {
+        const spikeHeight   = snapPeakEnergy - snapBaseline;
+        const currentHeight = Math.max(0, energy - snapBaseline);
+
+        if (currentHeight < spikeHeight * 0.45) {
+          // Decayed back toward floor → snap confirmed
+          snapPending       = false;
+          snapPendingFrames = 0;
+          lastTriggerTime   = now;
+          onTrigger();
+        } else if (snapPendingFrames >= 5) {
+          // Held too long → speech or music transient, reject
+          snapPending       = false;
+          snapPendingFrames = 0;
+        }
+        // else: still within window, keep waiting
+      }
+    } else if (ratio > ratioThresh && energy > minEnergy) {
+      snapPending       = true;
+      snapPendingFrames = 0;
+      snapPeakEnergy    = energy;
+    }
+  }
+
+  // ─── UI ───────────────────────────────────────────────────────────────────
+  function updateUI(idx) {
+    const song = SONGS[idx];
+    document.getElementById("song-num").textContent = `${idx + 1} / ${SONGS.length}`;
+    document.getElementById("song-title").textContent = song.title;
+    document.getElementById("song-artist").textContent = song.artist;
+    const art = document.getElementById("album-art");
+    art.textContent = song.emoji;
+    art.style.background = song.color + "55";
+    art.style.boxShadow = `0 12px 40px ${song.color}66`;
+    art.classList.remove("spin");
+    void art.offsetWidth;
+    art.classList.add("spin");
+  }
+
+  function showBadge() {
+    const badge = document.getElementById("clap-badge");
+    badge.textContent = "👌 Snap!";
+    badge.classList.add("show");
+    setTimeout(() => badge.classList.remove("show"), 1800);
+  }
+
+  function bumpPanel() {
+    const panel = document.getElementById("panel");
+    panel.classList.remove("bump");
+    void panel.offsetWidth;
+    panel.classList.add("bump");
+  }
+
+  function spawnRipple() {
+    const r = document.createElement("div");
+    r.className = "ripple";
+    r.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%)";
+    document.getElementById("overlay").appendChild(r);
+    setTimeout(() => r.remove(), 900);
+  }
+
+  function spawnParticles() {
+    const song = SONGS[currentSongIdx];
+    for (let i = 0; i < 10; i++) {
+      const p = document.createElement("div");
+      p.className = "particle";
+      const size = 6 + Math.random() * 10;
+      p.style.width = size + "px";
+      p.style.height = size + "px";
+      p.style.background = song.color;
+      p.style.left = (25 + Math.random() * 50) + "vw";
+      p.style.top  = (35 + Math.random() * 30) + "vh";
+      p.style.animationDelay = Math.random() * 0.3 + "s";
+      document.getElementById("overlay").appendChild(p);
+      setTimeout(() => p.remove(), 1500);
+    }
+  }
+
+  // ─── Core trigger ─────────────────────────────────────────────────────────
+  function onTrigger() {
+    currentSongIdx = (currentSongIdx + 1) % SONGS.length;
+    updateUI(currentSongIdx);
+    showBadge();
+    bumpPanel();
+    spawnRipple();
+    spawnParticles();
+    if (isPlaying) playSong(currentSongIdx);
+  }
+
+  function togglePlay() {
+    ensureAudioCtx();
+    if (isPlaying) {
+      stopAll();
+      document.getElementById("play-btn").textContent = "▶";
+    } else {
+      playSong(currentSongIdx);
+      document.getElementById("play-btn").textContent = "⏸";
+    }
+  }
+
+  // ─── Visualizer ───────────────────────────────────────────────────────────
+  const canvas = document.getElementById("visualizer");
+  const ctx2d  = canvas.getContext("2d");
+
+  function drawVisualizer() {
+    requestAnimationFrame(drawVisualizer);
+    const W = canvas.offsetWidth, H = canvas.offsetHeight;
+    canvas.width = W; canvas.height = H;
+    ctx2d.clearRect(0, 0, W, H);
+
+    if (!micAnalyser) {
+      for (let i = 0; i < 20; i++) {
+        const h = 3 + Math.sin(Date.now() / 400 + i) * 3;
+        ctx2d.fillStyle = "rgba(255,255,255,0.15)";
+        ctx2d.beginPath();
+        ctx2d.roundRect((W / 20) * i + 2, H / 2 - h / 2, W / 20 - 4, h, 2);
+        ctx2d.fill();
+      }
+      return;
+    }
+
+    // Show high-freq band (the range we actually detect from)
+    micAnalyser.getByteFrequencyData(micFreqData);
+    const bars = 24, barW = W / bars - 2;
+    const song = SONGS[currentSongIdx];
+    for (let i = 0; i < bars; i++) {
+      const bin = 70 + Math.floor((i / bars) * 300); // 70–370 = our detection band
+      let val = micFreqData[bin] / 255;
+      if (!isPlaying) val = Math.max(val, 0);
+      const barH = Math.max(3, val * H);
+      const alpha = 0.4 + val * 0.6;
+      ctx2d.fillStyle = song.color + Math.floor(alpha * 255).toString(16).padStart(2, "0");
+      ctx2d.beginPath();
+      ctx2d.roundRect(i * (barW + 2), H - barH, barW, barH, 2);
+      ctx2d.fill();
+    }
+  }
+
+  // ─── Init ─────────────────────────────────────────────────────────────────
+  document.getElementById("start-btn").addEventListener("click", async () => {
+    try {
+      ensureAudioCtx();
+      const camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      document.getElementById("camera").srcObject = camStream;
+      await setupMic();
+      document.getElementById("start-screen").style.display = "none";
+      updateUI(0);
+
+      // Load iTunes 30-sec previews in background (non-blocking)
+      loadPreviews();
+
+      // Snap detection: every 30 ms
+      setInterval(detectSnap, 30);
+      drawVisualizer();
+    } catch (err) {
+      alert("Could not access camera/mic: " + err.message);
+    }
+  });
+
+  document.getElementById("play-btn").addEventListener("click", togglePlay);
+
+  document.getElementById("next-btn").addEventListener("click", () => {
+    currentSongIdx = (currentSongIdx + 1) % SONGS.length;
+    updateUI(currentSongIdx);
+    if (isPlaying) playSong(currentSongIdx);
+  });
+
+  document.getElementById("prev-btn").addEventListener("click", () => {
+    currentSongIdx = (currentSongIdx - 1 + SONGS.length) % SONGS.length;
+    updateUI(currentSongIdx);
+    if (isPlaying) playSong(currentSongIdx);
+  });
+</script>
+</body>
+</html>
